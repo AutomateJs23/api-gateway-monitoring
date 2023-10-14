@@ -1,0 +1,112 @@
+version: '3.9'
+services:
+  kong_db:
+    image: postgres:13.4-alpine
+    container_name: kong_db
+    volumes: 
+      - ./kong_db:/var/lib/postgresql/data 
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: kong
+      POSTGRES_DB: kong
+    restart: always
+
+  kong_migration:
+    image: kong:3.0.2-alpine
+    container_name: kong_migration
+    command: 'kong migrations bootstrap'
+    restart: on-failure
+    environment:
+      KONG_PG_HOST: kong_db
+    depends_on:
+      - kong_db
+
+  kong:
+    image: kong:3.0.2-alpine
+    container_name: kong
+    restart: always
+    environment:
+      KONG_DATABASE: postgres 
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002
+      KONG_PG_HOST: kong_db
+      KONG_PG_DATABASE: kong
+    ports:
+      #- 8000:8000
+      - 8000:8000 
+      #- 8443:8443
+      - 443:8443 
+      - 8001:8001 
+      - 8444:8444 
+      - 8002:8002
+    depends_on:
+      - kong_db
+      - kong_migration
+
+  konga_db:
+    image: postgres:14-alpine
+    container_name: konga_db
+    restart: always
+    volumes: 
+      - ./konga_db:/var/lib/postgresql/data 
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: konga
+      POSTGRES_DB: konga
+
+  konga:
+    image: pantsel/konga:0.14.9
+    container_name: konga
+    environment:
+      # NODE_ENV: production
+      NODE_ENV: development
+      # TOKEN_SECRET: ${TOKEN_SECRET}
+    restart: always
+    ports:
+      - 1337:1337
+    volumes:
+      - ./konga_vol:/app/kongadata
+    depends_on:
+      - konga_db 
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/promtheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - 9090:9090
+    restart: always
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    expose:
+      - "9100"
+    restart: always
+    
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+
+volumes:
+  kong_datastore:
+  konga_database:
+  prometheus_data:
